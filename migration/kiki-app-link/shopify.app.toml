@@ -1,0 +1,23 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "ccc83ff7f02568c13889c33c480ecdda"
+name = "Codex Migrator"
+application_url = "https://shopify.dev/apps/default-app-home"
+embedded = true
+
+[webhooks]
+api_version = "2026-01"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,write_customers,write_inventory,read_inventory,write_inventory_shipments,read_inventory_shipments,write_inventory_shipments_received_items,read_inventory_shipments_received_items,write_inventory_transfers,read_inventory_transfers,read_orders,write_orders,read_products,write_products,read_content,write_content,read_themes,write_themes,customer_write_customers,customer_read_customers,customer_read_orders,customer_write_orders,unauthenticated_write_customers,unauthenticated_read_customers,unauthenticated_read_content"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ ]
+
+[app_proxy]
+url = "https://REPLACE_WITH_YOUR_APP_DOMAIN/proxy/nightwear-vote"
+subpath = "nightwear-vote"
+prefix = "apps"

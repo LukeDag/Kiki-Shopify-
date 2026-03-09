@@ -1,0 +1,23 @@
+{
+  "name": "kiki-app-link",
+  "version": "1.0.0",
+  "description": "Kiki app proxy endpoint for Nightwear vote upsert",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "shopify",
+    "app-proxy",
+    "nightwear",
+    "vote"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  }
+}
