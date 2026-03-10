@@ -111,34 +111,59 @@ function sanitizeShop(shop) {
   return raw.replace(/^https?:\/\//, '').replace(/\/+$/, '');
 }
 
-function verifyProxySignature(query) {
-  if (!SHARED_SECRET) return false;
-  const signature = query.signature;
-  if (!signature) return false;
+function constantTimeHexEqual(left, right) {
+  const a = String(left || '').trim();
+  const b = String(right || '').trim();
+  if (!a || !b || a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+  } catch (_error) {
+    return false;
+  }
+}
 
-  const sorted = Object.keys(query)
-    .filter((key) => key !== 'signature')
+function serializeSignedParams(query, separator) {
+  return Object.keys(query || {})
+    .filter((key) => key !== 'signature' && key !== 'hmac')
     .sort()
     .map((key) => {
       const value = query[key];
       if (Array.isArray(value)) return `${key}=${value.join(',')}`;
       return `${key}=${value}`;
     })
-    .join('');
+    .join(separator);
+}
 
-  const digest = crypto.createHmac('sha256', SHARED_SECRET).update(sorted).digest('hex');
+function verifyProxySignature(query) {
+  if (!SHARED_SECRET) return false;
 
-  try {
-    return crypto.timingSafeEqual(Buffer.from(digest, 'utf8'), Buffer.from(String(signature), 'utf8'));
-  } catch (_error) {
-    return false;
-  }
+  const provided = query.signature || query.hmac;
+  if (!provided) return false;
+
+  // App proxy format (signature): concatenated k=v pairs with no separator.
+  const proxyPayload = serializeSignedParams(query, '');
+  const proxyDigest = crypto.createHmac('sha256', SHARED_SECRET).update(proxyPayload).digest('hex');
+  if (constantTimeHexEqual(proxyDigest, provided)) return true;
+
+  // Some environments surface `hmac`-style payloads.
+  const hmacPayload = serializeSignedParams(query, '&');
+  const hmacDigest = crypto.createHmac('sha256', SHARED_SECRET).update(hmacPayload).digest('hex');
+  return constantTimeHexEqual(hmacDigest, provided);
 }
 
 function isProxyRequestAuthorized(req) {
   const isSigned = verifyProxySignature(req.query || {});
   if (isSigned) return true;
-  return ALLOW_UNSIGNED_PROXY_REQUESTS;
+  if (ALLOW_UNSIGNED_PROXY_REQUESTS) return true;
+
+  try {
+    const keys = Object.keys(req.query || {}).sort().join(',');
+    // eslint-disable-next-line no-console
+    console.warn(`proxy_signature_failed:${req.path}:keys=${keys || 'none'}`);
+  } catch (_error) {
+    // ignore log failure
+  }
+  return false;
 }
 
 function clearStatsCache(shop) {
