@@ -8,6 +8,38 @@ const app = express();
 app.use(express.json({ limit: '128kb' }));
 app.use(express.urlencoded({ extended: false }));
 
+// Shopify app proxy traffic can occasionally arrive with mismatched
+// Content-Type headers (form payload labelled as JSON). Swallow that parse
+// failure and recover by parsing the raw body as urlencoded so vote submits
+// don't fail with a generic 400 before route handlers run.
+app.use((error, req, _res, next) => {
+  if (!error) return next();
+
+  const isJsonParseFailure =
+    error &&
+    (error.type === 'entity.parse.failed' ||
+      (error instanceof SyntaxError && String(error.message || '').toLowerCase().includes('json')));
+
+  if (!isJsonParseFailure) {
+    return next(error);
+  }
+
+  const rawBody = typeof error.body === 'string' ? error.body : '';
+  if (!rawBody) {
+    req.body = req.body && typeof req.body === 'object' ? req.body : {};
+    return next();
+  }
+
+  try {
+    const parsed = Object.fromEntries(new URLSearchParams(rawBody));
+    req.body = parsed && typeof parsed === 'object' ? parsed : {};
+    return next();
+  } catch (_recoverError) {
+    req.body = {};
+    return next();
+  }
+});
+
 const PORT = Number(process.env.PORT || 3000);
 const API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-01';
 const CLIENT_ID = process.env.SHOPIFY_CLIENT_ID || process.env.SHOPIFY_API_KEY || '';
@@ -415,6 +447,23 @@ async function setVoteMetafield(shop, customerId, setKey) {
   const result = data && data.metafieldsSet;
   if (!result) throw new Error('metafields_set_missing_result');
   assertMutationUserErrors(result, 'metafields_set_error');
+}
+
+async function trySetVoteMetafield(shop, customerId, setKey) {
+  try {
+    await setVoteMetafield(shop, customerId, setKey);
+    return true;
+  } catch (error) {
+    // Metafield writes can fail if the app is missing customer-metafield scope.
+    // Votes still persist via customer tags, so we degrade gracefully here.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `nightwear_vote_metafield_warning:${shop}:${customerId}:${
+        error && error.message ? error.message : 'unknown'
+      }`
+    );
+    return false;
+  }
 }
 
 async function collectNightwearSignals(shop) {
@@ -914,7 +963,7 @@ async function handleVoteRequest(req, res) {
 
     if (!customer) {
       customer = await createCustomer(shop, email, setKey);
-      await setVoteMetafield(shop, customer.id, setKey);
+      await trySetVoteMetafield(shop, customer.id, setKey);
       const emailResult = await sendConfirmationEmail(email, setLabel);
 
       clearStatsCache(shop);
@@ -943,7 +992,7 @@ async function handleVoteRequest(req, res) {
     }
 
     await addTags(shop, customer.id, BASE_TAGS.concat([voteTagForSet(setKey)]));
-    await setVoteMetafield(shop, customer.id, setKey);
+    await trySetVoteMetafield(shop, customer.id, setKey);
     const emailResult = await sendConfirmationEmail(email, setLabel);
 
     clearStatsCache(shop);
@@ -956,6 +1005,10 @@ async function handleVoteRequest(req, res) {
       email_sent: Boolean(emailResult.sent)
     });
   } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `nightwear_vote_error:${shop}:${email}:${setKey}:${error && error.message ? error.message : 'unknown'}`
+    );
     return res.status(500).json({
       status: 'error',
       message: error && error.message ? error.message : 'vote_upsert_failed'
