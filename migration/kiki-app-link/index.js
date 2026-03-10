@@ -960,6 +960,42 @@ async function sendConfirmationEmail(email, setLabel) {
   return { sent: true };
 }
 
+function mapVoteErrorMessage(error) {
+  const raw = String((error && error.message) || 'vote_upsert_failed');
+  const normalized = raw.toLowerCase();
+
+  if (
+    normalized.includes('missing_client_credentials') ||
+    normalized.includes('token_http_') ||
+    normalized.includes('token_missing_access_token')
+  ) {
+    return 'oauth_not_configured';
+  }
+
+  if (
+    normalized.includes('admin_http_401') ||
+    normalized.includes('admin_http_403') ||
+    normalized.includes('access denied')
+  ) {
+    if (
+      normalized.includes('write_customers') ||
+      normalized.includes('customercreate') ||
+      normalized.includes('tagsadd') ||
+      normalized.includes('customerupdate') ||
+      normalized.includes('customers')
+    ) {
+      return 'missing_write_customers_scope';
+    }
+    return 'admin_api_forbidden';
+  }
+
+  if (normalized.includes('customer_create_error') && normalized.includes('taken')) {
+    return 'customer_exists_conflict';
+  }
+
+  return raw;
+}
+
 async function handleVoteRequest(req, res) {
   if (!isProxyRequestAuthorized(req)) {
     return res.status(401).json({ status: 'error', message: 'invalid_proxy_signature' });
@@ -1030,13 +1066,15 @@ async function handleVoteRequest(req, res) {
       email_sent: Boolean(emailResult.sent)
     });
   } catch (error) {
+    const friendlyMessage = mapVoteErrorMessage(error);
     // eslint-disable-next-line no-console
     console.error(
       `nightwear_vote_error:${shop}:${email}:${setKey}:${error && error.message ? error.message : 'unknown'}`
     );
     return res.status(500).json({
       status: 'error',
-      message: error && error.message ? error.message : 'vote_upsert_failed'
+      message: friendlyMessage,
+      detail: error && error.message ? error.message : 'vote_upsert_failed'
     });
   }
 }
