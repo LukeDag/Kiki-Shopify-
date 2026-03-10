@@ -388,35 +388,22 @@ async function createCustomer(shop, email, setKey) {
   `;
 
   const tags = BASE_TAGS.concat([voteTagForSet(setKey)]);
-  const attempts = [
-    {
-      email,
-      acceptsMarketing: true,
-      tags
-    },
-    {
-      email,
-      tags
-    }
-  ];
+  const input = {
+    email,
+    tags
+  };
 
-  let lastError = null;
-  for (const input of attempts) {
-    const data = await adminGraphql(shop, mutation, { input });
-    const result = data && data.customerCreate;
-    if (!result) {
-      lastError = 'customer_create_missing_result';
-      continue;
-    }
-
-    if (!result.userErrors || !result.userErrors.length) {
-      return result.customer;
-    }
-
-    lastError = `customer_create_error:${JSON.stringify(result.userErrors)}`;
+  const data = await adminGraphql(shop, mutation, { input });
+  const result = data && data.customerCreate;
+  if (!result) {
+    throw new Error('customer_create_missing_result');
   }
 
-  throw new Error(lastError || 'customer_create_failed');
+  if (!result.userErrors || !result.userErrors.length) {
+    return result.customer;
+  }
+
+  throw new Error(`customer_create_error:${JSON.stringify(result.userErrors)}`);
 }
 
 async function addTags(shop, customerId, tags) {
